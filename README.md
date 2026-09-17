@@ -41,13 +41,22 @@ zlib doctor                                 # 体检：凭据、连通性、代�
 
 ## 安装
 
+**Homebrew（macOS / Linux）：**
+
 ```bash
-cd zlib-go
-make build          # 产出 ./zlib
-make install        # 装到 /usr/local/bin/zlib（需写权限，或用上面的软链方式）
+brew tap difyz9/tap https://github.com/difyz9/homebrew-tap
+brew install difyz9/tap/zlib
 ```
 
-### 安装到 PATH
+新版本发布后：`brew update && brew upgrade difyz9/tap/zlib`。
+
+**从 Releases 下载预编译二进制**（linux/darwin/windows × amd64/arm64，附 sha256）：
+
+```bash
+curl -LO "https://github.com/difyz9/zlib-go/releases/latest/download/zlib-$(uname -s | tr '[:upper:]' '[:lower:]')-$(case $(uname -m) in x86_64) echo amd64;; aarch64|arm64) echo arm64;; *) uname -m;; esac).tar.gz"
+```
+
+**源码构建：**
 
 ```bash
 cd zlib-go
@@ -58,13 +67,6 @@ ln -sf "$(pwd)/zlib" ~/.local/bin/zlib
 ```
 
 要求 Go 1.26+（仅编译期）。唯一的第三方依赖是 `golang.org/x/net/html`，用于解析 Anna's Archive 的搜索结果页。
-
-也可以从 GitHub Releases 下载预编译的跨平台二进制（linux/darwin/windows × amd64/arm64，附 sha256）：
-
-```bash
-curl -LO "https://github.com/difyz9/zlib-go/releases/latest/download/zlib-$(uname -s | tr '[:upper:]' '[:lower:]')-$(case $(uname -m) in x86_64) echo amd64;; aarch64|arm64) echo arm64;; *) uname -m;; esac).tar.gz"
-```
-
 ## 配置
 
 优先级：**命令行 flag > 环境变量 > 配置文件**。
