@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -120,6 +121,11 @@ func TestCorruptConfigIsReportedNotSwallowed(t *testing.T) {
 // TestSavedConfigIsOwnerOnly is a security property: the file can hold a
 // password and an API key in plain text.
 func TestSavedConfigIsOwnerOnly(t *testing.T) {
+	// POSIX permission bits are a no-op on Windows; the 0600 property is only
+	// meaningful where the filesystem enforces it.
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes do not apply on Windows")
+	}
 	dir := isolate(t)
 	cfg := &Config{Zlib: ZlibConfig{Password: "secret"}}
 	if err := cfg.Save(); err != nil {
@@ -236,6 +242,9 @@ func TestCacheAndClearToken(t *testing.T) {
 }
 
 func TestSaveCreatesDirectoryWithOwnerOnlyMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes do not apply on Windows")
+	}
 	parent := t.TempDir()
 	dir := filepath.Join(parent, "nested", "zlib")
 	t.Setenv("ZLIB_CONFIG_DIR", dir)
