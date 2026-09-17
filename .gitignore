@@ -1,4 +1,4 @@
-zlib
+/zlib
 *.test
 coverage.out
 .DS_Store
