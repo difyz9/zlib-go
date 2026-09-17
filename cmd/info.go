@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"zlib/internal/model"
-	"zlib/internal/ui"
+	"github.com/difyz9/zlib-go/internal/model"
+	"github.com/difyz9/zlib-go/internal/ui"
 )
 
 // infoOutput is the JSON envelope `--json info` prints.

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode"
 
-	"zlib/internal/model"
+	"github.com/difyz9/zlib-go/internal/model"
 )
 
 // runeWidth returns how many terminal columns a rune occupies.

@@ -23,8 +23,8 @@ import (
 	"strings"
 	"time"
 
-	"zlib/internal/fetch"
-	"zlib/internal/model"
+	"github.com/difyz9/zlib-go/internal/fetch"
+	"github.com/difyz9/zlib-go/internal/model"
 )
 
 // TrustedHosts are the only hosts the API key may be sent to.

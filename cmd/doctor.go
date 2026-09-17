@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"zlib/internal/config"
-	"zlib/internal/fetch"
-	"zlib/internal/zlib"
+	"github.com/difyz9/zlib-go/internal/config"
+	"github.com/difyz9/zlib-go/internal/fetch"
+	"github.com/difyz9/zlib-go/internal/zlib"
 )
 
 // check is one doctor result line.

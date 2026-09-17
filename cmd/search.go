@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"zlib/internal/model"
-	"zlib/internal/ui"
+	"github.com/difyz9/zlib-go/internal/model"
+	"github.com/difyz9/zlib-go/internal/ui"
 )
 
 // searchOutput is the JSON envelope `--json search` prints.

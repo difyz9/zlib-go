@@ -1,4 +1,4 @@
-module zlib
+module github.com/difyz9/zlib-go
 
 go 1.26.5
 

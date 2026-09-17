@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"zlib/internal/ui"
+	"github.com/difyz9/zlib-go/internal/ui"
 )
 
 // target is a book identifier in either of the two shapes the CLI accepts:

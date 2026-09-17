@@ -4,7 +4,7 @@ PREFIX  ?= /usr/local
 # The version reported by `zlib version` is injected at link time; a locally
 # built binary without -ldflags -X falls back to "dev" in cmd/root.go.
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS := -s -w -X zlib/cmd.version=$(VERSION)
+LDFLAGS := -s -w -X github.com/difyz9/zlib-go/cmd.version=$(VERSION)
 
 .PHONY: all build test test-verbose vet fmt fmt-check lint cover install uninstall clean smoke check
 

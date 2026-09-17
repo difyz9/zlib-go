@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"zlib/internal/config"
+	"github.com/difyz9/zlib-go/internal/config"
 )
 
 func cmdConfig(ctx *Context, args []string) error {

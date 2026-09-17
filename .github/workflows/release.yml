@@ -50,7 +50,7 @@ jobs:
             # The tag is injected into `zlib version` at link time, so the
             # released binaries always report exactly what was pushed.
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
-              go build -trimpath -ldflags "-s -w -X zlib/cmd.version=${GITHUB_REF_NAME}" -o "dist/${bin}" .
+              go build -trimpath -ldflags "-s -w -X github.com/difyz9/zlib-go/cmd.version=${GITHUB_REF_NAME}" -o "dist/${bin}" .
             ( cd dist && tar -czf "${name}.tar.gz" "${bin}" && rm "${bin}" )
             # A sha256 next to each archive lets installers verify integrity.
             ( cd dist && shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256" )

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"zlib/internal/model"
+	"github.com/difyz9/zlib-go/internal/model"
 )
 
 // TestDisplayWidthCountsCJKAsTwoColumns is the reason this package exists: a

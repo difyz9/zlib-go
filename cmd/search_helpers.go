@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"zlib/internal/zlib"
+	"github.com/difyz9/zlib-go/internal/zlib"
 )
 
 // searchTimeout bounds one search across all backends.

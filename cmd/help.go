@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 
-	"zlib/internal/config"
+	"github.com/difyz9/zlib-go/internal/config"
 )
 
 // stdout and stderr are variables so tests can substitute buffers.

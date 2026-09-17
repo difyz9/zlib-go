@@ -10,9 +10,9 @@ import (
 	"os"
 	"strings"
 
-	"zlib/internal/config"
-	"zlib/internal/fetch"
-	"zlib/internal/ui"
+	"github.com/difyz9/zlib-go/internal/config"
+	"github.com/difyz9/zlib-go/internal/fetch"
+	"github.com/difyz9/zlib-go/internal/ui"
 )
 
 // version is the tool version, reported by `zlib version`.

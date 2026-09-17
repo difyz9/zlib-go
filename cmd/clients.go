@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"zlib/internal/annas"
-	"zlib/internal/config"
-	"zlib/internal/zlib"
+	"github.com/difyz9/zlib-go/internal/annas"
+	"github.com/difyz9/zlib-go/internal/config"
+	"github.com/difyz9/zlib-go/internal/zlib"
 )
 
 // newZlibClient resolves the EAPI domain and returns a client holding valid

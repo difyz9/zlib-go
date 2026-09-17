@@ -8,7 +8,7 @@ package main
 import (
 	"os"
 
-	"zlib/cmd"
+	"github.com/difyz9/zlib-go/cmd"
 )
 
 func main() {

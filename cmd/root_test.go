@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"zlib/internal/ui"
+	"github.com/difyz9/zlib-go/internal/ui"
 )
 
 // newTestColors returns a colorizer that emits no escapes, so assertions compare
