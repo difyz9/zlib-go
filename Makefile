@@ -1,7 +1,10 @@
 GO      ?= go
 BIN     ?= zlib
 PREFIX  ?= /usr/local
-VERSION := $(shell grep -m1 'Version = ' cmd/root.go | cut -d'"' -f2)
+# The version reported by `zlib version` is injected at link time; a locally
+# built binary without -ldflags -X falls back to "dev" in cmd/root.go.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -s -w -X zlib/cmd.version=$(VERSION)
 
 .PHONY: all build test test-verbose vet fmt fmt-check lint cover install uninstall clean smoke check
 
@@ -9,7 +12,7 @@ all: check build
 
 ## build: compile the single static binary
 build:
-	$(GO) build -trimpath -ldflags "-s -w" -o $(BIN) .
+	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) .
 
 ## test: run the full test suite
 test:

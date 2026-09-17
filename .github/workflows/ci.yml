@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["v*"] # tags are handled by release.yml
+  pull_request:
+
+jobs:
+  check:
+    name: Vet, format, test, smoke
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # Only the smoke target touches a built binary; it is POSIX-flavoured, so
+      # it runs on the unix runners.
+      - name: Run checks
+        if: runner.os != 'Windows'
+        run: make check smoke
+      - name: Run checks (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          go vet ./...
+          go test ./...

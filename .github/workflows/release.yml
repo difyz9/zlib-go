@@ -1,0 +1,66 @@
+name: Release
+
+# Pushing a tag like v0.2.0 builds cross-platform binaries and publishes them
+# as a GitHub Release. Plain branch pushes are handled by CI.yml instead.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # required to create the Release and upload assets
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run checks
+        run: make check
+
+      - name: Build cross-platform binaries
+        # CGO is disabled: the only dependency (golang.org/x/net/html) is pure
+        # Go, so every target cross-compiles with the stock toolchain.
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          targets() {
+            echo "linux/amd64"
+            echo "linux/arm64"
+            echo "darwin/amd64"
+            echo "darwin/arm64"
+            echo "windows/amd64"
+            echo "windows/arm64"
+          }
+          for target in $(targets); do
+            os="${target%/*}"; arch="${target#*/}"
+            name="zlib-${GITHUB_REF_NAME}-${os}-${arch}"
+            bin="${name}"
+            ext=""
+            [ "$os" = "windows" ] && { bin="${name}.exe"; ext=".exe"; }
+            # The tag is injected into `zlib version` at link time, so the
+            # released binaries always report exactly what was pushed.
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -trimpath -ldflags "-s -w -X zlib/cmd.version=${GITHUB_REF_NAME}" -o "dist/${bin}" .
+            ( cd dist && tar -czf "${name}.tar.gz" "${bin}" && rm "${bin}" )
+            # A sha256 next to each archive lets installers verify integrity.
+            ( cd dist && shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256" )
+          done
+          ls -la dist
+
+      - name: Create Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256

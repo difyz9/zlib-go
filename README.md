@@ -59,6 +59,12 @@ ln -sf "$(pwd)/zlib" ~/.local/bin/zlib
 
 要求 Go 1.26+（仅编译期）。唯一的第三方依赖是 `golang.org/x/net/html`，用于解析 Anna's Archive 的搜索结果页。
 
+也可以从 GitHub Releases 下载预编译的跨平台二进制（linux/darwin/windows × amd64/arm64，附 sha256）：
+
+```bash
+curl -LO "https://github.com/difyz9/zlib-go/releases/latest/download/zlib-$(uname -s | tr '[:upper:]' '[:lower:]')-$(case $(uname -m) in x86_64) echo amd64;; aarch64|arm64) echo arm64;; *) uname -m;; esac).tar.gz"
+```
+
 ## 配置
 
 优先级：**命令行 flag > 环境变量 > 配置文件**。
@@ -243,6 +249,19 @@ make test        # 全量
 make check       # vet + gofmt + test
 make smoke       # 端到端冒烟（隔离配置目录，不碰网络）
 ```
+
+同样的检查也跑在 GitHub Actions 上（`.github/workflows/`）：
+
+- **CI**：每次 push / PR，在 Linux、macOS、Windows 三平台跑检查
+- **Release**：推 tag 触发——跑完整检查、交叉编译六个目标（linux/darwin/windows × amd64/arm64，CGO 关闭，静态链接，**tag 通过 ldflags 注入为版本号**，无需改代码）、打 tar.gz 并附 sha256，自动创建 GitHub Release 并上传产物
+
+发布新版本只需打 tag 推送，版本号自动跟随 tag：
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+本地 `make build` 的版本号取 `git describe`（如 `v0.1.0-3-g1a2b3c`），未注入时显示 `dev`。
 
 覆盖的核心行为：
 

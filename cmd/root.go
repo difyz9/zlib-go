@@ -15,8 +15,16 @@ import (
 	"zlib/internal/ui"
 )
 
-// Version is the tool version, reported by `zlib version`.
-const Version = "0.1.0"
+// version is the tool version, reported by `zlib version`.
+//
+// A release build injects the git tag through -ldflags "-X zlib/cmd.version=v1.2.3",
+// so a pushed tag needs no matching edit to this file. The dev fallback marks
+// a locally built binary as unreleased.
+var version = "dev"
+
+// Version reports the effective version. It exists so tests and callers can
+// read the variable through a stable name.
+func Version() string { return version }
 
 // Context carries per-invocation state to subcommand handlers.
 type Context struct {
@@ -121,7 +129,7 @@ func Run(args []string) int {
 	case "doctor", "check":
 		runErr = cmdDoctor(ctx, cmdArgs)
 	case "version", "--version", "-v":
-		fmt.Fprintf(ctx.Out, "zlib %s\n", Version)
+		fmt.Fprintf(ctx.Out, "zlib %s\n", Version())
 		return 0
 	case "help", "--help", "-h":
 		printHelp(ctx)
