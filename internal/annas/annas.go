@@ -53,7 +53,7 @@ type Client struct {
 	BaseURL   string
 	SecretKey string
 
-	http *http.Client
+	http     *http.Client
 	logf     func(string, ...any)
 	progress fetch.ProgressReporter
 }

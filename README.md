@@ -6,8 +6,8 @@
 
 ```bash
 zlib login                                  # 登录（token 缓存，只跑一次）
-zlib search "deep learning" --limit 5       # 搜索
-zlib download 12345/abc123def -o ~/Books    # 下载
+zlib search "deep learning" --limit 5       # 搜索，每行结果带下载标识符
+zlib download 12345/abc123def -o ~/Books    # 下载（带实时进度条）
 zlib doctor                                 # 体检：凭据、连通性、代理
 ```
 
@@ -44,7 +44,17 @@ zlib doctor                                 # 体检：凭据、连通性、代�
 ```bash
 cd zlib-go
 make build          # 产出 ./zlib
-make install        # 装到 /usr/local/bin/zlib
+make install        # 装到 /usr/local/bin/zlib（需写权限，或用上面的软链方式）
+```
+
+### 安装到 PATH
+
+```bash
+cd zlib-go
+make build
+
+# /usr/local/bin 需要写权限；个人机器上软链到 ~/.local/bin 即可（PATH 内）
+ln -sf "$(pwd)/zlib" ~/.local/bin/zlib
 ```
 
 要求 Go 1.26+（仅编译期）。唯一的第三方依赖是 `golang.org/x/net/html`，用于解析 Anna's Archive 的搜索结果页。
@@ -106,15 +116,33 @@ zlib --json search "deep learning" | jq '.books[].title'
 
 过滤参数：`--limit` `--page` `--lang` `--ext` `--year-from` `--year-to` `--exact` `--order`。`--lang` 与 `--ext` 支持逗号分隔多值。
 
+结果表格的最后一列 **Download ID** 就是每行结果的下载标识符——Z-Library 结果为 `id/hash`，Anna's Archive 结果为 MD5。想下载哪本，复制那一行的 ID 直接交给 `download`：
+
+```
+#  Title                        Author          Year  Lang  Fmt   Size     Download ID
+1  Deep Learning with Python…   Jason Brownlee  2016  en    pdf   4.64 MB  3647669/945552
+2  Deep Learning for Finance…   Sofien Kaabar   2024  en    pdf   8.72 MB  27434353/69152a
+```
+
+`--json` 模式下对应每个 book 的 `id` + `hash`（或 `hash`）字段。
+
 ### `download` — 下载
 
 ```bash
-zlib download 12345/abc123def -o ~/Books        # Z-Library：id/hash，可从搜索结果直接复制
+zlib download 12345/abc123def -o ~/Books        # Z-Library：id/hash，从搜索结果 Download ID 列直接复制
 zlib download a1b2c3d4e5f6 --source annas      # Anna's Archive：裸 MD5
 zlib download 12345/abc123def --name "自定义书名.pdf"
 ```
 
 标识符的形状决定源：带 `/` 的是 Z-Library 的 `id/hash`，裸哈希只能来自 MD5 系源。下载到临时文件后原子 rename，中断不会留下半截文件。
+
+交互式终端上会显示**实时进度条**（采样节流到约 10fps）：
+
+```
+Downloading  [======================]   83%  7.2 MB / 8.7 MB  1.5 MB/s
+```
+
+服务器未返回 Content-Length 时降级为只显示已下载字节数和速率。进度条只在 stderr 为终端时启用：`--json` 模式或输出被重定向到管道/文件时自动关闭，脚本和日志不受 `\r` 刷新干扰。
 
 ### 辅助命令
 
@@ -195,7 +223,7 @@ internal/
 ├── annas/              Anna's Archive（原生实现）
 │   ├── annas.go        搜索刮取 + fast-download API
 │   └── html.go         无依赖的 DOM 遍历 + 元数据条解析
-├── ui/                 表格（CJK 宽度）/ 颜色
+├── ui/                 表格（CJK 宽度）/ 颜色 / 下载进度条
 ├── model/              跨源统一的 Book
 └── config/             文件 + 环境变量合并
 ```
@@ -206,7 +234,7 @@ internal/
 
 - **表格按显示宽度对齐**，不是按 rune 数。中文标题每字占两列，按 rune 算会让所有含中文的行错位。
 - **元数据条按模式匹配，绝不按位置**。Anna's Archive 的 `·` 分隔条各段可选且顺序不保证（约 9% 的记录没有年份），按下标解析会把年份错当成扩展名。
-- **stdout 只放结果**，进度信息一律走 stderr，这样管道和 `jq` 不受干扰。
+- **stdout 只放结果**，进度信息一律走 stderr，这样管道和 `jq` 不受干扰。进度条同理：只在 stderr 是终端时才渲染，捕获到文件时不会留下一堆 `\r` 碎片。
 
 ## 测试
 
@@ -225,7 +253,7 @@ make smoke       # 端到端冒烟（隔离配置目录，不碰网络）
 - 文件名路径穿越防护（`../../etc/passwd`、`..\..\Windows\system32`、`C:\Windows\...`）
 - 配置优先级、0600 权限、脱敏输出
 - 参数重排：旗标写在位置参数之后仍生效、`--flag=value` 不被拆开、`--` 分隔符正确传递、布尔旗标不吃掉下一个参数
-- 表格 CJK 对齐、用法错误的退出码区分
+- 表格 CJK 对齐、进度条帧率节流与未知总大小降级、用法错误的退出码区分
 
 ## 与源项目的关系
 
