@@ -95,19 +95,17 @@ func cmdSearch(ctx *Context, args []string) error {
 		ctx.Colors.Source(usedSource))
 
 	table := ui.BookTable(books, ctx.Colors, ui.BookColumns{
-		ShowIndex:  true,
-		ShowSource: ui.MixedSources(books),
+		ShowIndex:      true,
+		ShowSource:     ui.MixedSources(books),
+		ShowIdentifier: books[0].Identifier() != "",
 	})
 	table.Render(ctx.Out)
 
-	// A hint is worth printing only when the identifier is not obvious from the
-	// table, which is the zlib case where download needs id and hash both.
-	if usedSource == "zlib" && books[0].ID != "" && books[0].Hash != "" {
-		fmt.Fprintf(ctx.Out, "\n%s zlib download %s/%s -o ~/Downloads\n",
-			ctx.Colors.Dim("Download with:"), books[0].ID, books[0].Hash)
-	} else if books[0].Hash != "" {
-		fmt.Fprintf(ctx.Out, "\n%s zlib download %s --source %s\n",
-			ctx.Colors.Dim("Download with:"), books[0].Hash, usedSource)
+	// The Download ID column carries the per-row identifier; the hint below
+	// only shows the command shape using the first row as a concrete example.
+	if ident := books[0].Identifier(); ident != "" {
+		fmt.Fprintf(ctx.Out, "\n%s zlib download %s -o ~/Downloads\n",
+			ctx.Colors.Dim("Download with (use the Download ID column):"), ident)
 	}
 	if len(errs) > 0 {
 		fmt.Fprintf(ctx.Out, "%s\n", ctx.Colors.Yellow("Note: "+strings.Join(errs, "; ")))

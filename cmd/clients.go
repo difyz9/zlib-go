@@ -33,6 +33,7 @@ func newZlibClient(ctx context.Context, c *Context) (*zlib.Client, error) {
 		RemixUserKey: c.Cfg.Zlib.RemixUserKey,
 		Proxy:        c.Cfg.Proxy,
 		Logf:         c.Logf,
+		Progress:     c.Progress,
 	})
 
 	if client.LoggedIn() {
@@ -64,6 +65,7 @@ func newAnnasClient(c *Context) (*annas.Client, error) {
 		SecretKey: c.Cfg.Annas.SecretKey,
 		Proxy:     c.Cfg.Proxy,
 		Logf:      c.Logf,
+		Progress:  c.Progress,
 	})
 }
 

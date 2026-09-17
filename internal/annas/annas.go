@@ -54,7 +54,8 @@ type Client struct {
 	SecretKey string
 
 	http *http.Client
-	logf func(string, ...any)
+	logf     func(string, ...any)
+	progress fetch.ProgressReporter
 }
 
 // Options configures a Client.
@@ -65,6 +66,8 @@ type Options struct {
 	// proxy environment variables.
 	Proxy string
 	Logf  func(string, ...any)
+	// Progress, when set, receives download transfer updates.
+	Progress fetch.ProgressReporter
 }
 
 // New creates a client.
@@ -98,6 +101,7 @@ func New(opts Options) (*Client, error) {
 		BaseURL:   base,
 		SecretKey: opts.SecretKey,
 		logf:      logf,
+		progress:  opts.Progress,
 		http: &http.Client{
 			Timeout:   apiTimeout,
 			Transport: transport,
@@ -271,7 +275,7 @@ func (c *Client) Download(ctx context.Context, md5, outDir, filename string) (st
 		filename = md5 + ".pdf"
 	}
 	c.logf("annas fast-download URL resolved for %s", md5)
-	path, err := fetch.DownloadToFile(ctx, c.http, res.URL, outDir, filename, "", downloadTimeout, c.logf)
+	path, err := fetch.DownloadToFile(ctx, c.http, res.URL, outDir, filename, "", downloadTimeout, c.logf, c.progress)
 	if err != nil {
 		return "", err
 	}

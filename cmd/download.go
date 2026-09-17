@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"zlib/internal/ui"
 )
 
 // target is a book identifier in either of the two shapes the CLI accepts:
@@ -92,6 +94,12 @@ func cmdDownload(ctx *Context, args []string) error {
 		return usagef("no output directory: pass --out or set download_dir in the config")
 	}
 	dir = expandHome(dir)
+
+	// Progress bars rewrite one line with \r, which only makes sense on an
+	// interactive stderr; JSON mode and captured output get plain results.
+	if !ctx.JSON && isTerminal(ctx.Err) {
+		ctx.Progress = ui.NewProgress(ctx.Err, "Downloading")
+	}
 
 	dctx, cancel := context.WithTimeout(context.Background(), downloadBudget)
 	defer cancel()

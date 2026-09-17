@@ -128,6 +128,23 @@ func TestColorsEnabledWrapsInEscapes(t *testing.T) {
 	}
 }
 
+func TestBookTableShowsDownloadID(t *testing.T) {
+	var buf bytes.Buffer
+	table := BookTable([]model.Book{
+		{Source: model.SourceZlib, ID: "23257128", Hash: "62ea22", Title: "Deep Learning", Extension: "pdf"},
+		{Source: model.SourceAnnas, Hash: "0123456789abcdef0123456789abcdef", Title: "No Year Book", Extension: "epub"},
+	}, NewColors(false), BookColumns{ShowIdentifier: true})
+	table.Render(&buf)
+
+	out := buf.String()
+	if !strings.Contains(out, "23257128/62ea22") {
+		t.Errorf("zlib id/hash not shown in the table:\n%s", out)
+	}
+	if !strings.Contains(out, "0123456789abcdef0123456789abcdef") {
+		t.Errorf("annas MD5 not shown untruncated in the table:\n%s", out)
+	}
+}
+
 func TestBookTableOmitsEmptyFields(t *testing.T) {
 	// Records from Anna's Archive frequently lack a year; the row must still
 	// render with a placeholder rather than shifting columns.

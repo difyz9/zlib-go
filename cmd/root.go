@@ -7,9 +7,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"zlib/internal/config"
+	"zlib/internal/fetch"
 	"zlib/internal/ui"
 )
 
@@ -25,6 +27,10 @@ type Context struct {
 
 	JSON    bool
 	Verbose bool
+
+	// Progress, when set, receives download transfer updates. It is populated
+	// by `download` for interactive runs only; search and info never need it.
+	Progress fetch.ProgressReporter
 }
 
 // Logf writes a progress line to stderr, and only in verbose mode. Progress
@@ -34,6 +40,21 @@ func (c *Context) Logf(format string, args ...any) {
 	if c.Verbose {
 		fmt.Fprintf(c.Err, "· "+format+"\n", args...)
 	}
+}
+
+// isTerminal reports whether w is a character device such as a terminal.
+// Progress bars rewrite one line with \r, which is unreadable when stderr is
+// captured to a file, so they are shown only when this returns true.
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 // UsageError marks a problem with how the tool was invoked, which exits 2 to

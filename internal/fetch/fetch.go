@@ -224,6 +224,18 @@ const StagingPrefix = ".zlib-part-"
 // otherwise be indistinguishable from success.
 var ErrEmptyDownload = errors.New("download produced an empty file: the daily quota may be exhausted or the file removed")
 
+// ProgressReporter receives transfer updates while a download streams. It is
+// implemented by ui.Progress; the fetch package stays free of rendering
+// concerns.
+type ProgressReporter interface {
+	// Progress is called as bytes arrive, with the total taken from
+	// Content-Length (0 when the server did not send one).
+	Progress(written, total int64)
+	// ProgressDone is called once after the transfer finished, including on
+	// failure, so the reporter can clear its transient output.
+	ProgressDone(written, total int64)
+}
+
 // DownloadToFile streams rawURL into outDir/filename atomically.
 //
 // The body lands in a hidden staging file first and is renamed into place only
@@ -232,7 +244,7 @@ var ErrEmptyDownload = errors.New("download produced an empty file: the daily qu
 //
 // A non-200 response returns *StatusError so the caller can decide whether the
 // code means "walled", "gone", or "retry".
-func DownloadToFile(ctx context.Context, client *http.Client, rawURL, outDir, filename, cookie string, timeout time.Duration, logf func(string, ...any)) (string, error) {
+func DownloadToFile(ctx context.Context, client *http.Client, rawURL, outDir, filename, cookie string, timeout time.Duration, logf func(string, ...any), progress ProgressReporter) (string, error) {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return "", fmt.Errorf("create download directory: %w", err)
 	}
@@ -284,7 +296,10 @@ func DownloadToFile(ctx context.Context, client *http.Client, rawURL, outDir, fi
 		os.Remove(stagingPath)
 	}
 
-	written, err := io.Copy(staging, resp.Body)
+	written, err := copyWithProgress(ctx, staging, resp.Body, resp.ContentLength, progress)
+	if progress != nil {
+		progress.ProgressDone(written, resp.ContentLength)
+	}
 	if err != nil {
 		discard()
 		return "", fmt.Errorf("download interrupted after %d bytes: %w", written, err)
@@ -319,6 +334,36 @@ func DownloadToFile(ctx context.Context, client *http.Client, rawURL, outDir, fi
 		logf("downloaded %d bytes to %s", written, finalPath)
 	}
 	return finalPath, nil
+}
+
+// copyWithProgress streams r into w, reporting growth to progress (which may
+// be nil). It is a manual copy loop because io.Copy offers no hook for progress
+// updates.
+func copyWithProgress(ctx context.Context, w io.Writer, r io.Reader, total int64, progress ProgressReporter) (int64, error) {
+	if progress == nil {
+		return io.Copy(w, r)
+	}
+	var written int64
+	buf := make([]byte, 64<<10)
+	for {
+		if err := ctx.Err(); err != nil {
+			return written, err
+		}
+		n, rerr := r.Read(buf)
+		if n > 0 {
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return written, werr
+			}
+			written += int64(n)
+			progress.Progress(written, total)
+		}
+		if rerr == io.EOF {
+			return written, nil
+		}
+		if rerr != nil {
+			return written, rerr
+		}
+	}
 }
 
 // FileSize renders a byte count in the compact form the book sites use.

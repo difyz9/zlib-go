@@ -208,7 +208,11 @@ func alignAt(aligns []Alignment, i int) Alignment {
 type BookColumns struct {
 	ShowSource bool
 	ShowIndex  bool
-	TitleWidth int
+	// ShowIdentifier adds a "Download" column carrying the value to paste
+	// back into `zlib download`. Without it a user has no way to know which
+	// row of the table maps to which identifier.
+	ShowIdentifier bool
+	TitleWidth     int
 }
 
 // BookTable builds the table used by `search`.
@@ -244,6 +248,12 @@ func BookTable(books []model.Book, colors *Colors, cols BookColumns) *Table {
 	stylers = append(stylers,
 		colors.Title, nil, nil, nil, nil,
 		func(s string) string { return colors.Dim(s) })
+	if cols.ShowIdentifier {
+		headers = append(headers, "Download ID")
+		aligns = append(aligns, AlignLeft)
+		maxw = append(maxw, 42)
+		stylers = append(stylers, colors.Magenta)
+	}
 
 	rows := make([][]string, 0, len(books))
 	for i, b := range books {
@@ -262,6 +272,9 @@ func BookTable(books []model.Book, colors *Colors, cols BookColumns) *Table {
 			dash(b.Extension),
 			dash(b.Filesize),
 		)
+		if cols.ShowIdentifier {
+			row = append(row, b.Identifier())
+		}
 		rows = append(rows, row)
 	}
 
