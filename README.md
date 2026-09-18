@@ -7,6 +7,10 @@
 
 **范围**：登录 · 搜索 · 下载。零运行时依赖——不需要 Python、Node 或任何外部二进制；单文件交叉编译，开箱即用。
 
+## 微信
+
+<img src="img/20250918172120_11_359.jpg" alt="我的微信二维码" width="180">
+
 ```bash
 zlib login                                  # 登录（token 缓存，只跑一次）
 zlib search "deep learning" --limit 5       # 搜索，每行结果带下载标识符
