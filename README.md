@@ -197,11 +197,15 @@ zlib doctor --json      # ✗ → HINT: Global options go before the command nam
 
 ```bash
 zlib config set --proxy socks5://127.0.0.1:1080
+zlib config set --proxy 'socks5://user:password@154.222.46.2:62813'  # 带认证的 SOCKS5
 # 或一次性：zlib --proxy socks5://127.0.0.1:1080 search "..."
+# 或一次性：zlib --proxy 'socks5://user:password@154.222.46.2:62813' search "..."
 # 或：export HTTPS_PROXY=socks5://127.0.0.1:1080
 ```
 
 支持 `http` / `https` / `socks5` 代理。
+
+带账号密码的代理请写成标准 URL 形式：`socks5://用户名:密码@服务器地址:端口`。例如 SOCKS5 代理服务器 `154.222.46.2:62813`，账号 `user`，密码 `password`，对应为 `socks5://user:password@154.222.46.2:62813`。命令行一次性 `--proxy` 优先级最高，适合临时测试；确认可用后再写入配置文件。
 
 **关于 Anna's Archive**：站点部署了 DDoS-Guard，会返回一个需要执行 JavaScript 的挑战页。这不是凭据问题，纯 HTTP 客户端无法通过——需要代理或换网络。Z-Library 的 EAPI 没有这层挑战（但常被网络层阻断）。
 
