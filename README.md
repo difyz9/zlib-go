@@ -41,6 +41,25 @@ brew install difyz9/tap/zlib
 
 新版本发布后：`brew update && brew upgrade difyz9/tap/zlib`。
 
+<details>
+<summary>Linux 上没有 brew？先装 Linuxbrew（点开展开）</summary>
+
+```bash
+# 安装 linuxbrew
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+安装完成后，按提示把环境变量写入 shell（Debian 默认 bash）：
+
+```bash
+echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+然后再执行上面的 `brew tap` 命令。
+
+</details>
+
 **从 Releases 下载预编译二进制**（linux / macOS / Windows × amd64 / arm64，附 sha256）：
 
 ```bash
