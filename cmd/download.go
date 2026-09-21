@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/difyz9/zlib-go/internal/ui"
+	"github.com/difyz9/zlib-go/internal/zlib"
 )
 
 // target is a book identifier in either of the two shapes the CLI accepts:
@@ -116,11 +117,7 @@ func cmdDownload(ctx *Context, args []string) error {
 				"  Copy the identifier from a search result: zlib download <id>/<hash>\n" +
 				"  Or download by MD5 from Anna's Archive: zlib download <md5> --source annas")
 		}
-		client, cerr := newZlibClient(dctx, ctx)
-		if cerr != nil {
-			return cerr
-		}
-		path, err = client.Download(dctx, tgt.ID, tgt.Hash, dir, *name)
+		path, err = downloadZlibWithRotation(dctx, ctx, tgt.ID, tgt.Hash, dir, *name)
 	case "annas":
 		client, cerr := newAnnasClient(ctx)
 		if cerr != nil {
@@ -152,6 +149,77 @@ func cmdDownload(ctx *Context, args []string) error {
 	}
 	fmt.Fprintf(ctx.Out, "%s open %q\n", ctx.Colors.Dim("Open with:"), path)
 	return nil
+}
+
+// downloadZlibWithRotation downloads one book, rotating through every stored
+// Z-Library account when an account's daily download limit blocks the transfer.
+//
+// A free account gets ten downloads per day, so the intended workflow is to
+// store several accounts (`zlib account add`) and let this loop pick one with
+// quota left, starting from the active account. Two signals trigger a switch:
+// a profile that reports zero downloads left (checked before spending an
+// attempt), and a quota error from the download endpoint itself.
+func downloadZlibWithRotation(dctx context.Context, ctx *Context, id, hash, dir, name string) (string, error) {
+	if !ctx.Cfg.HasZlib() {
+		return "", errNoZlibCredentials
+	}
+
+	domain := zlib.ResolveDomain(dctx, ctx.Cfg.Zlib.Domain, zlib.ProbeTimeout, ctx.Logf)
+	accounts := ctx.Cfg.AccountList()
+
+	var (
+		exhausted []string
+		lastErr   error
+	)
+	for _, acc := range accounts {
+		if !acc.Usable() {
+			continue
+		}
+		client, err := newZlibAccountClient(dctx, ctx, domain, acc)
+		if err != nil {
+			lastErr = err
+			ctx.Logf("account %s unusable: %v", acc.Email, err)
+			continue
+		}
+
+		// Skip accounts the profile reports as spent, so a rotation does not
+		// burn a failed attempt (and a confusing error message) per account.
+		if profile, perr := client.GetProfile(dctx); perr == nil {
+			if profile.DownloadsLeft <= 0 {
+				exhausted = append(exhausted, fmt.Sprintf("%s: %d/%d used today",
+					acc.Email, profile.DownloadsToday, profile.DownloadsLimit))
+				continue
+			}
+			ctx.Logf("account %s has %d/%d downloads left", acc.Email,
+				profile.DownloadsLeft, profile.DownloadsLimit)
+		}
+
+		path, derr := client.Download(dctx, id, hash, dir, name)
+		if derr == nil {
+			return path, nil
+		}
+		if zlib.IsQuotaError(derr) {
+			exhausted = append(exhausted, fmt.Sprintf("%s: %v", acc.Email, derr))
+			fmt.Fprintf(ctx.Err, "%s\n", ctx.Colors.Yellow(fmt.Sprintf(
+				"account %s hit its download limit; switching to the next account...", acc.Email)))
+			continue
+		}
+		// Every other failure (book removed, wall, network) does not depend on
+		// the account, so rotating would only repeat the same error.
+		return "", derr
+	}
+
+	if len(exhausted) > 0 {
+		return "", fmt.Errorf(
+			"the daily download limit is exhausted on every stored account:\n  %s\n"+
+				"  The quota resets on a rolling 24-hour basis, or add another account:\n"+
+				"  zlib account add --email <email> --password <password>",
+			strings.Join(exhausted, "\n  "))
+	}
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", fmt.Errorf("no usable Z-Library account is configured")
 }
 
 // downloadBudget bounds a single transfer including link resolution.

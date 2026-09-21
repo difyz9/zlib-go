@@ -18,6 +18,7 @@ package zlib
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ErrNotAuthenticated is returned when a call needs credentials and none were
@@ -57,4 +58,51 @@ func (e *APIError) Error() string {
 		return "z-library API error: " + e.Message
 	}
 	return fmt.Sprintf("z-library %s failed: %s", e.Operation, e.Message)
+}
+
+// QuotaError reports that the account's daily download limit was reached.
+// It is a distinct type because the remedy (switch to another account) differs
+// from every other download failure (give up or retry the same account later).
+type QuotaError struct {
+	Account string // email or "" when unknown
+	Message string
+}
+
+func (e *QuotaError) Error() string {
+	if e.Account == "" {
+		return "z-library download quota exhausted: " + e.Message
+	}
+	return fmt.Sprintf("z-library download quota exhausted for %s: %s", e.Account, e.Message)
+}
+
+// IsQuotaError reports whether err is, or wraps, a QuotaError.
+func IsQuotaError(err error) bool {
+	var q *QuotaError
+	return errors.As(err, &q)
+}
+
+// quotaMessages are substrings the EAPI uses when the daily download limit is
+// the failure reason. The exact wording has varied, so a substring match on a
+// lowercased message is used rather than an exact comparison.
+var quotaMessages = []string{
+	"daily limit",
+	"downloads limit",
+	"download limit",
+	"limit of downloads",
+	"limit reached",
+	"quota",
+	"too many downloads",
+}
+
+// classifyQuota wraps an APIError into a QuotaError when its message indicates
+// the account's download allowance is spent. Callers use this to decide
+// whether rotating to another account could help.
+func classifyQuota(op, message string) error {
+	lower := strings.ToLower(message)
+	for _, m := range quotaMessages {
+		if strings.Contains(lower, m) {
+			return &QuotaError{Message: message}
+		}
+	}
+	return &APIError{Operation: op, Message: message}
 }

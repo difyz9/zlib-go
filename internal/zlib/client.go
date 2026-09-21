@@ -415,10 +415,8 @@ func (c *Client) GetDownloadLink(ctx context.Context, id, hash string) (*Downloa
 		return nil, err
 	}
 	if !isSuccess(payload) {
-		return nil, &APIError{
-			Operation: "download link",
-			Message:   errorMessage(payload, "download unavailable (quota exhausted or file removed)"),
-		}
+		return nil, classifyQuota("download link",
+			errorMessage(payload, "download unavailable or file removed"))
 	}
 
 	// The link arrives nested under "file" on current deployments and at the

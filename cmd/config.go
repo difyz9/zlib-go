@@ -73,20 +73,29 @@ func configSet(ctx *Context, args []string) error {
 	}
 
 	changed := []string{}
-	if *email != "" {
-		ctx.Cfg.Zlib.Email = *email
-		// Changing the account invalidates the cached session, and leaving a
-		// stale token behind would make the next run authenticate as the old
-		// user — or fail confusingly.
-		ctx.Cfg.Zlib.RemixUserID = ""
-		ctx.Cfg.Zlib.RemixUserKey = ""
-		changed = append(changed, "zlib.email", "zlib.remix token (cleared)")
-	}
-	if *password != "" {
-		ctx.Cfg.Zlib.Password = *password
-		ctx.Cfg.Zlib.RemixUserID = ""
-		ctx.Cfg.Zlib.RemixUserKey = ""
-		changed = append(changed, "zlib.password", "zlib.remix token (cleared)")
+	if *email != "" || *password != "" {
+		// Route through the account store so the multi-account list stays the
+		// single source of truth; the legacy fields are mirrored on save.
+		mail, pass := *email, *password
+		if mail == "" {
+			mail = ctx.Cfg.Zlib.Email
+		}
+		if pass == "" && *email == "" {
+			pass = ctx.Cfg.Zlib.Password
+		}
+		if mail != "" && pass != "" {
+			if _, err := ctx.Cfg.AddZlibAccount(mail, pass); err != nil {
+				return err
+			}
+		}
+		if *email != "" {
+			ctx.Cfg.Zlib.Email = *email
+			changed = append(changed, "zlib.email", "zlib.remix token (cleared)")
+		}
+		if *password != "" {
+			ctx.Cfg.Zlib.Password = *password
+			changed = append(changed, "zlib.password", "zlib.remix token (cleared)")
+		}
 	}
 	if *domain != "" {
 		ctx.Cfg.Zlib.Domain = *domain
@@ -176,31 +185,34 @@ func cmdLogin(ctx *Context, args []string) error {
 		return err
 	}
 
-	if *email != "" {
-		ctx.Cfg.Zlib.Email = *email
+	if *email == "" {
+		*email = ctx.Cfg.Zlib.Email
 	}
-	if *password != "" {
-		ctx.Cfg.Zlib.Password = *password
+	if *password == "" && *email == ctx.Cfg.Zlib.Email {
+		*password = ctx.Cfg.Zlib.Password
 	}
-	if ctx.Cfg.Zlib.Email == "" || ctx.Cfg.Zlib.Password == "" {
+	if *email == "" || *password == "" {
 		return usagef("email and password are required.\n" +
 			"  Pass them here: zlib login --email <email> --password <password>\n" +
-			"  Or store them first: zlib config set --zlib-email <email> --zlib-password <password>")
+			"  Or store them first: zlib account add --email <email> --password <password>")
 	}
 
 	lctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
 
+	// Store (or update) the account first so the token can be cached on it.
+	if _, err := ctx.Cfg.AddZlibAccount(*email, *password); err != nil {
+		return err
+	}
+
 	domain := zlibResolveProbe(ctx)
 	client := newZlibClientForDomain(ctx, domain)
 
-	userID, userKey, err := client.Login(lctx, ctx.Cfg.Zlib.Email, ctx.Cfg.Zlib.Password)
+	userID, userKey, err := client.Login(lctx, *email, *password)
 	if err != nil {
 		return err
 	}
-	// Persist the credentials too, so the account survives without the password
-	// having to be passed again on the next run.
-	if err := ctx.Cfg.CacheZlibToken(userID, userKey); err != nil {
+	if err := ctx.Cfg.UpdateZlibAccountToken(*email, userID, userKey); err != nil {
 		return err
 	}
 
@@ -208,12 +220,13 @@ func cmdLogin(ctx *Context, args []string) error {
 		return writeJSON(ctx, map[string]any{
 			"status":       "ok",
 			"domain":       domain,
+			"email":        *email,
 			"remix_userid": userID,
 			"file":         config.Path(),
 		})
 	}
 	fmt.Fprintf(ctx.Out, "%s to Z-Library via %s\n", ctx.Colors.Green("Signed in"), domain)
-	fmt.Fprintf(ctx.Out, "  %s %s\n", ctx.Colors.Dim("Token cached in"), config.Path())
+	fmt.Fprintf(ctx.Out, "  %s %s (%d account(s) stored)\n", ctx.Colors.Dim("Token cached in"), config.Path(), ctx.Cfg.AccountCount())
 
 	// Report the remaining quota now, because that is the next thing the user
 	// wants to know and it costs one request.
@@ -227,11 +240,17 @@ func cmdLogin(ctx *Context, args []string) error {
 // --- quota ---
 
 func cmdQuota(ctx *Context, args []string) error {
-	if err := parseFlags(newFlagSet("quota", ""), args); err != nil {
+	fs := newFlagSet("quota", "")
+	all := fs.Bool("all", false, "report the quota of every stored account")
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	qctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
+
+	if *all {
+		return quotaAll(ctx, qctx)
+	}
 
 	client, err := newZlibClient(qctx, ctx)
 	if err != nil {
@@ -253,6 +272,62 @@ func cmdQuota(ctx *Context, args []string) error {
 		profile.DownloadsLeft, profile.DownloadsLimit, profile.DownloadsToday)
 	if profile.DownloadsLeft == 0 {
 		fmt.Fprintf(ctx.Out, "%s\n", ctx.Colors.Yellow("Quota exhausted; it resets on a rolling 24-hour basis."))
+	}
+	return nil
+}
+
+// quotaAll reports the remaining downloads of every stored account, which is
+// the overview that matters when rotation is in play.
+func quotaAll(ctx *Context, gctx context.Context) error {
+	if ctx.Cfg.AccountCount() == 0 {
+		return fmt.Errorf("no Z-Library accounts stored; add one with `zlib account add`")
+	}
+	domain := zlibResolveProbe(ctx)
+	type row struct {
+		Email  string `json:"email"`
+		Limit  int    `json:"downloads_limit"`
+		Today  int    `json:"downloads_today"`
+		Left   int    `json:"downloads_left"`
+		Active bool   `json:"is_active"`
+		Error  string `json:"error,omitempty"`
+	}
+	rows := make([]row, 0, ctx.Cfg.AccountCount())
+	active := activeEmail(ctx)
+	for _, acc := range ctx.Cfg.AccountList() {
+		r := row{Email: acc.Email, Active: acc.Email == active}
+		client, err := newZlibAccountClient(gctx, ctx, domain, acc)
+		if err != nil {
+			r.Error = err.Error()
+			r.Limit = 10
+			rows = append(rows, r)
+			continue
+		}
+		profile, err := client.GetProfile(gctx)
+		if err != nil {
+			r.Error = err.Error()
+			r.Limit = 10
+			rows = append(rows, r)
+			continue
+		}
+		r.Limit = profile.DownloadsLimit
+		r.Today = profile.DownloadsToday
+		r.Left = profile.DownloadsLeft
+		rows = append(rows, r)
+	}
+	if ctx.JSON {
+		return writeJSON(ctx, map[string]any{"accounts": rows})
+	}
+	fmt.Fprintf(ctx.Out, "%s\n", ctx.Colors.Bold("Z-Library quotas:"))
+	for _, r := range rows {
+		marker := "  "
+		if r.Active {
+			marker = ctx.Colors.Green("* ")
+		}
+		if r.Error != "" {
+			fmt.Fprintf(ctx.Out, "%s%-32s %s\n", marker, r.Email, ctx.Colors.Yellow(r.Error))
+			continue
+		}
+		fmt.Fprintf(ctx.Out, "%s%-32s %d/%d left\n", marker, r.Email, r.Left, r.Limit)
 	}
 	return nil
 }

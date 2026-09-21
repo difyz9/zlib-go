@@ -8,15 +8,21 @@ import (
 	"github.com/difyz9/zlib-go/internal/config"
 )
 
-// stdout and stderr are variables so tests can substitute buffers.
+// stdout, stderr, and stdin are variables so tests can substitute buffers.
 var (
 	stdout io.Writer = os.Stdout
 	stderr io.Writer = os.Stderr
+	stdin  io.Reader = os.Stdin
 )
 
 // SetWriters overrides the output streams, for tests.
 func SetWriters(out, err io.Writer) {
 	stdout, stderr = out, err
+}
+
+// SetInput overrides the input stream, for tests of the interactive pager.
+func SetInput(in io.Reader) {
+	stdin = in
 }
 
 func printHelp(ctx *Context) {
@@ -31,11 +37,12 @@ func printHelp(ctx *Context) {
 
 `)
 	fmt.Fprintf(w, "%s\n", b("COMMANDS"))
-	fmt.Fprint(w, `  search <query>        Search for books
+	fmt.Fprint(w, `  search <query>        Search for books (interactive result paging on a terminal)
   info <id>/<hash>      Show full metadata for one book (Z-Library)
-  download <target>     Download a book
+  download <target>     Download a book (rotates accounts on quota errors)
   login                 Sign in to Z-Library and cache the session token
-  quota                 Show the account's remaining daily downloads
+  account add|list|...  Manage multiple Z-Library accounts for quota rotation
+  quota [--all]         Show remaining daily downloads (all accounts with --all)
   config show|set|reset Inspect or change configuration
   doctor                Check credentials, dependencies, and connectivity
   version               Print the version
@@ -60,6 +67,11 @@ func printHelp(ctx *Context) {
 
   # Download by the identifier shown in a search result
   zlib download 12345/abc123def456 -o ~/Books
+
+  # Store several accounts; downloads rotate to one with quota left
+  zlib account add --email a@example.com --password s3cret
+  zlib account add --email b@example.com --password s3cret
+  zlib quota --all
 
   # Anna's Archive download by MD5
   zlib download a1b2c3d4e5f6 --source annas --name "some_book.pdf"
@@ -87,7 +99,9 @@ func printHelp(ctx *Context) {
   Z-Library rate-limits logins to roughly ten per hour per IP. Run `+"`zlib login`"+`
   once; the cached token is reused until you run `+"`config reset`"+`.
 
-  Free Z-Library accounts can download about ten books per day. Check the
-  remaining quota with `+"`zlib quota`"+` before spending one.
+  Free Z-Library accounts can download about ten books per day. Store multiple
+  accounts with `+"`zlib account add`"+` and `+"`download`"+` switches to the next
+  account automatically when one hits its daily limit. Check the remaining
+  quota of every account with `+"`zlib quota --all`"+`.
 `)
 }

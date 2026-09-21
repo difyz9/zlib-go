@@ -32,6 +32,8 @@ type Context struct {
 	Colors *ui.Colors
 	Out    io.Writer
 	Err    io.Writer
+	// In is the standard input; the search result pager reads commands from it.
+	In io.Reader
 
 	JSON    bool
 	Verbose bool
@@ -102,6 +104,7 @@ func Run(args []string) int {
 		Colors:  ui.NewColors(!cfg.NoColor),
 		Out:     stdout,
 		Err:     stderr,
+		In:      stdin,
 		JSON:    global.json,
 		Verbose: global.verbose,
 	}
@@ -122,6 +125,8 @@ func Run(args []string) int {
 		runErr = cmdDownload(ctx, cmdArgs)
 	case "login":
 		runErr = cmdLogin(ctx, cmdArgs)
+	case "account", "accounts":
+		runErr = cmdAccount(ctx, cmdArgs)
 	case "quota", "profile":
 		runErr = cmdQuota(ctx, cmdArgs)
 	case "config":

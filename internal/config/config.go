@@ -29,15 +29,38 @@ type Config struct {
 	NoColor bool   `json:"-"`
 }
 
-// ZlibConfig holds Z-Library credentials. Either the email/password pair or the
-// cached remix token pair is enough; the token pair is preferred because
-// /eapi/user/login is rate limited to roughly ten attempts per hour per IP.
+// ZlibAccount is one stored Z-Library account. Either the email/password
+// pair or the cached remix token pair is enough; the token pair is preferred
+// because /eapi/user/login is rate limited to roughly ten attempts per hour
+// per IP.
+type ZlibAccount struct {
+	Email        string `json:"email,omitempty"`
+	Password     string `json:"password,omitempty"`
+	RemixUserID  string `json:"remix_userid,omitempty"`
+	RemixUserKey string `json:"remix_userkey,omitempty"`
+}
+
+// Usable reports whether the account can authenticate: it holds either a
+// cached token pair or an email/password pair.
+func (a ZlibAccount) Usable() bool {
+	return (a.Email != "" && a.Password != "") ||
+		(a.RemixUserID != "" && a.RemixUserKey != "")
+}
+
+// ZlibConfig holds Z-Library credentials. The single-account fields are kept
+// as a mirror of Accounts[0] so an older build reading the same config file
+// still finds its credentials; Accounts is the canonical store and supports
+// any number of accounts for quota rotation.
 type ZlibConfig struct {
 	Email        string `json:"email,omitempty"`
 	Password     string `json:"password,omitempty"`
 	RemixUserID  string `json:"remix_userid,omitempty"`
 	RemixUserKey string `json:"remix_userkey,omitempty"`
 	Domain       string `json:"domain,omitempty"` // pins the EAPI domain; empty means probe
+
+	Accounts []ZlibAccount `json:"accounts,omitempty"`
+	// Active is the preferred account index; download rotation starts here.
+	Active int `json:"active,omitempty"`
 }
 
 // AnnasConfig holds Anna's Archive settings.
@@ -103,6 +126,7 @@ func Load() (*Config, error) {
 	if cfg.DefaultSource == "" {
 		cfg.DefaultSource = DefaultSource
 	}
+	cfg.Zlib.normalize()
 	if cfg.Annas.BaseURL == "" {
 		cfg.Annas.BaseURL = DefaultAnnasBaseURL
 	}
@@ -146,10 +170,163 @@ func setStr(dst *string, key string) {
 	}
 }
 
+// normalize folds the legacy single-account fields, the account list, and the
+// environment overrides into one canonical account list.
+//
+//   - a config file written by an older build carries only the legacy fields,
+//     which become Accounts[0];
+//   - ZLIBRARY_EMAIL/ZLIBRARY_PASSWORD override the account with the matching
+//     email (or create it first) so env-based setups keep working;
+//   - after the merge the legacy fields mirror Accounts[0] again, so saving the
+//     config keeps the file readable by older builds.
+func (z *ZlibConfig) normalize() {
+	if len(z.Accounts) == 0 {
+		if z.Email != "" || z.Password != "" || z.RemixUserID != "" || z.RemixUserKey != "" {
+			z.Accounts = []ZlibAccount{{
+				Email:        z.Email,
+				Password:     z.Password,
+				RemixUserID:  z.RemixUserID,
+				RemixUserKey: z.RemixUserKey,
+			}}
+		}
+	} else if z.Email != "" || z.Password != "" {
+		// Legacy fields set alongside an account list only happens when the
+		// environment or an old hand-edit filled them in; fold them into the
+		// matching account rather than keeping two sources of truth.
+		merged := false
+		for i := range z.Accounts {
+			if z.Accounts[i].Email == z.Email {
+				if z.Password != "" {
+					z.Accounts[i].Password = z.Password
+					z.Accounts[i].RemixUserID, z.Accounts[i].RemixUserKey = "", ""
+				}
+				merged = true
+				break
+			}
+		}
+		if !merged && z.Email != "" {
+			z.Accounts = append([]ZlibAccount{{Email: z.Email, Password: z.Password}}, z.Accounts...)
+			z.Active = 0
+		}
+	}
+
+	if z.Active < 0 || z.Active >= len(z.Accounts) {
+		z.Active = 0
+	}
+
+	// Mirror Accounts[0] into the legacy fields so HasZlib, Redacted, Save, and
+	// older builds all agree on the primary account.
+	z.Email, z.Password, z.RemixUserID, z.RemixUserKey = "", "", "", ""
+	if len(z.Accounts) > 0 {
+		z.Email = z.Accounts[0].Email
+		z.Password = z.Accounts[0].Password
+		z.RemixUserID = z.Accounts[0].RemixUserID
+		z.RemixUserKey = z.Accounts[0].RemixUserKey
+	}
+}
+
+// AccountList returns the stored accounts in preference order: the active
+// account first, then the rest. Login state is not considered; the caller
+// rotates on failures.
+func (c *Config) AccountList() []ZlibAccount {
+	accs := c.Zlib.Accounts
+	idx := c.Zlib.Active
+	if len(accs) == 0 || idx == 0 || idx >= len(accs) {
+		return accs
+	}
+	ordered := make([]ZlibAccount, 0, len(accs))
+	ordered = append(ordered, accs[idx])
+	for i := range accs {
+		if i != idx {
+			ordered = append(ordered, accs[i])
+		}
+	}
+	return ordered
+}
+
+// AccountCount reports how many Z-Library accounts are stored.
+func (c *Config) AccountCount() int { return len(c.Zlib.Accounts) }
+
+// AddZlibAccount stores an account (upsert by email) and makes it the active
+// one when it is new. It returns whether the account was newly added.
+func (c *Config) AddZlibAccount(email, password string) (bool, error) {
+	email = strings.TrimSpace(email)
+	if email == "" || password == "" {
+		return false, fmt.Errorf("account email and password are both required")
+	}
+	for i := range c.Zlib.Accounts {
+		if c.Zlib.Accounts[i].Email == email {
+			c.Zlib.Accounts[i].Password = password
+			// A changed password invalidates the cached session.
+			c.Zlib.Accounts[i].RemixUserID, c.Zlib.Accounts[i].RemixUserKey = "", ""
+			return false, c.Save()
+		}
+	}
+	c.Zlib.Accounts = append(c.Zlib.Accounts, ZlibAccount{Email: email, Password: password})
+	c.Zlib.Active = len(c.Zlib.Accounts) - 1
+	return true, c.Save()
+}
+
+// RemoveZlibAccount drops the account with the given email.
+func (c *Config) RemoveZlibAccount(email string) (bool, error) {
+	removed := false
+	kept := c.Zlib.Accounts[:0]
+	for _, a := range c.Zlib.Accounts {
+		if a.Email == email {
+			removed = true
+			continue
+		}
+		kept = append(kept, a)
+	}
+	c.Zlib.Accounts = kept
+	if c.Zlib.Active >= len(kept) {
+		c.Zlib.Active = 0
+	}
+	if !removed {
+		return false, nil
+	}
+	return true, c.Save()
+}
+
+// SetActiveZlibAccount makes the account with the given email the preferred
+// one for future runs.
+func (c *Config) SetActiveZlibAccount(email string) error {
+	for i, a := range c.Zlib.Accounts {
+		if a.Email == email {
+			c.Zlib.Active = i
+			return c.Save()
+		}
+	}
+	return fmt.Errorf("no stored account with email %q", email)
+}
+
+// UpdateZlibAccountToken caches a remix token pair on the account with the
+// given email so later runs skip /eapi/user/login entirely.
+func (c *Config) UpdateZlibAccountToken(email, userID, userKey string) error {
+	for i := range c.Zlib.Accounts {
+		if c.Zlib.Accounts[i].Email == email {
+			c.Zlib.Accounts[i].RemixUserID = userID
+			c.Zlib.Accounts[i].RemixUserKey = userKey
+			return c.Save()
+		}
+	}
+	return fmt.Errorf("no stored account with email %q", email)
+}
+
 // HasZlib reports whether any usable Z-Library credential is present.
 func (c *Config) HasZlib() bool {
-	return (c.Zlib.Email != "" && c.Zlib.Password != "") ||
-		(c.Zlib.RemixUserID != "" && c.Zlib.RemixUserKey != "")
+	if c.Zlib.Email != "" && c.Zlib.Password != "" {
+		return true
+	}
+	if c.Zlib.RemixUserID != "" && c.Zlib.RemixUserKey != "" {
+		return true
+	}
+	for _, a := range c.Zlib.Accounts {
+		if a.Usable() {
+			return true
+		}
+	}
+	return false
 }
 
 // HasAnnas reports whether an Anna's Archive API key is configured.
@@ -175,16 +352,26 @@ func (c *Config) Save() error {
 }
 
 // CacheZlibToken stores the remix token pair returned by a successful login so
-// later invocations skip /eapi/user/login entirely.
+// later invocations skip /eapi/user/login entirely. The pair is cached on
+// Accounts[0] (which the legacy fields mirror) and on the legacy fields for
+// older builds.
 func (c *Config) CacheZlibToken(userID, userKey string) error {
+	if len(c.Zlib.Accounts) > 0 {
+		c.Zlib.Accounts[0].RemixUserID = userID
+		c.Zlib.Accounts[0].RemixUserKey = userKey
+	}
 	c.Zlib.RemixUserID = userID
 	c.Zlib.RemixUserKey = userKey
 	return c.Save()
 }
 
-// ClearZlibToken drops the cached token pair, forcing the next run to log in
+// ClearZlibToken drops every cached token pair, forcing the next run to log in
 // with email and password again.
 func (c *Config) ClearZlibToken() error {
+	for i := range c.Zlib.Accounts {
+		c.Zlib.Accounts[i].RemixUserID = ""
+		c.Zlib.Accounts[i].RemixUserKey = ""
+	}
 	c.Zlib.RemixUserID = ""
 	c.Zlib.RemixUserKey = ""
 	return c.Save()
@@ -202,6 +389,17 @@ func (c *Config) Redacted() *Config {
 	if out.Annas.SecretKey != "" {
 		out.Annas.SecretKey = mask(out.Annas.SecretKey)
 	}
+	redacted := make([]ZlibAccount, len(out.Zlib.Accounts))
+	for i, a := range out.Zlib.Accounts {
+		if a.Password != "" {
+			a.Password = "***"
+		}
+		if a.RemixUserKey != "" {
+			a.RemixUserKey = mask(a.RemixUserKey)
+		}
+		redacted[i] = a
+	}
+	out.Zlib.Accounts = redacted
 	return &out
 }
 

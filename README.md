@@ -5,7 +5,7 @@
 
 一个 Go 单二进制 CLI，用于从 Z-Library 和 Anna's Archive 搜索、下载电子书。
 
-**范围**：登录 · 搜索 · 下载。零运行时依赖——不需要 Python、Node 或任何外部二进制；单文件交叉编译，开箱即用。
+**范围**：多账号登录 · 搜索（交互翻页） · 下载（配额自动轮换）。零运行时依赖——不需要 Python、Node 或任何外部二进制；单文件交叉编译，开箱即用。
 
 ## 微信
 
@@ -27,6 +27,8 @@ zlib doctor                                 # 体检：凭据、连通性、代�
 - **CJK 友好的表格输出**：按显示宽度（非 rune 数）对齐，中文标题不错列
 - **结构化 JSON 输出**：`--json` 供 `jq` 与脚本消费
 - **分阶段网络诊断**：`zlib doctor` 区分 DNS / TCP / TLS / HTTP 四类失败并给出对应建议
+- **搜索结果交互翻页**：终端下搜索完可 `n`/`p`/页码/`q` 翻看结果，`--no-pager` 关闭
+- **多账号与配额自动轮换**：一个免费账号每天约 10 本；存多个账号后，下载碰到限额自动切换到还有余额的账号
 
 ## 安装
 
@@ -55,16 +57,20 @@ make install        # 装到 /usr/local/bin/zlib
 ## 快速开始
 
 ```bash
-# 1. 配置 Z-Library 凭据（只需一次；token 会被缓存）
-zlib config set --zlib-email you@example.com --zlib-password '...'
-zlib login
+# 1. 存入 Z-Library 账号（可存多个，登录一次后 token 缓存，后续不再碰登录接口）
+zlib account add --email you@example.com --password '...'
+zlib account add --email backup@example.com --password '...'   # 可选：配额轮换备用
 
-# 2. 搜索
+# 2. 搜索（终端下可 n/p/页码/q 翻页浏览）
 zlib search "machine learning" --limit 10
 
 # 3. 从结果的 Download ID 列复制标识符下载
 zlib download 3647669/945552 -o ~/Books
+
+# 4. 下载被每日限额拦住时，自动切换到还有余额的账号重试
 ```
+
+没有 Z-Library 账号也能搜索：`zlib search "..." --source annas`（Anna's Archive 搜索无需凭据）。
 
 ## 配置
 
@@ -74,13 +80,26 @@ zlib download 3647669/945552 -o ~/Books
 
 ```json
 {
-  "zlib":  { "email": "...", "password": "...", "remix_userid": "...", "remix_userkey": "..." },
+  "zlib": {
+    "accounts": [
+      { "email": "a@x.com", "password": "...", "remix_userid": "...", "remix_userkey": "..." },
+      { "email": "b@x.com", "password": "..." }
+    ],
+    "active": 0
+  },
   "annas": { "secret_key": "...", "base_url": "https://annas-archive.gl" },
   "download_dir": "~/Downloads",
   "default_source": "auto",
   "proxy": "socks5://127.0.0.1:1080"
 }
 ```
+
+说明：
+
+- `accounts` 是账号的规范存储；`active` 指定优先使用的账号（`zlib account use` 切换）
+- 旧版单账号写法（`zlib.email` / `zlib.password` / `remix_userid` / `remix_userkey` 顶层字段）**完全兼容**，读取时自动迁移为 `accounts[0]`
+- 每个账号的 `remix_userid` / `remix_userkey` 是登录后缓存的 token，独立维护
+- 环境变量 `ZLIBRARY_EMAIL` / `ZLIBRARY_PASSWORD` 仍然优先于配置文件
 
 环境变量：
 
@@ -101,12 +120,12 @@ zlib download 3647669/945552 -o ~/Books
 
 ```bash
 zlib login --email you@example.com --password '...'
-# 或先存凭据再登录
-zlib config set --zlib-email you@example.com --zlib-password '...'
-zlib login
+# 或用账号命令（推荐，支持多账号）
+zlib account add --email you@example.com --password '...'
+zlib account add --email backup@example.com --password '...'
 ```
 
-登录成功后把 `remix_userid` / `remix_userkey` 缓存进配置文件，后续命令**不再碰登录接口**。这一点很关键：Z-Library 登录接口限流约 10 次/小时/IP，每次命令都登录会在几次操作内锁掉账号。
+登录成功后把 `remix_userid` / `remix_userkey` 缓存到对应账号，后续命令**不再碰登录接口**。这一点很关键：Z-Library 登录接口限流约 10 次/小时/IP，每次命令都登录会在几次操作内锁掉账号。
 
 登录时会顺带报告今天的剩余下载配额。
 
@@ -121,7 +140,7 @@ zlib --json search "deep learning" | jq '.books[].title'
 
 `--source auto`（默认）先试 Z-Library，失败再试 Anna's Archive——后者**搜索不需要 API key**，所以没凭据也能用。哪个源失败会记在 `errors` 里，不会整体中断。
 
-过滤参数：`--limit` `--page` `--lang` `--ext` `--year-from` `--year-to` `--exact` `--order`。`--lang` 与 `--ext` 支持逗号分隔多值。
+过滤参数：`--limit` `--page` `--lang` `--ext` `--year-from` `--year-to` `--exact` `--order` `--no-pager`。`--lang` 与 `--ext` 支持逗号分隔多值。
 
 结果表格的最后一列 **Download ID** 就是每行结果的下载标识符——Z-Library 结果为 `id/hash`，Anna's Archive 结果为 MD5。想下载哪本，复制那一行的 ID 直接交给 `download`：
 
@@ -133,6 +152,8 @@ zlib --json search "deep learning" | jq '.books[].title'
 
 `--json` 模式下对应每个 book 的 `id` + `hash`（或 `hash`）字段。
 
+在交互式终端上，首次结果输出后会进入**分页浏览**：回车或 `n` 下一页，`p` 上一页，输入数字直接跳页，`q` 退出。每一页都是一次新的后端请求（两个源都支持分页），短于 `--limit` 的页视为结果末尾。管道、`--json` 或 `--no-pager` 下行为与从前完全一致。
+
 ### `download` — 下载
 
 ```bash
@@ -143,6 +164,8 @@ zlib download 12345/abc123def --name "自定义书名.pdf"
 
 标识符的形状决定源：带 `/` 的是 Z-Library 的 `id/hash`，裸哈希只能来自 MD5 系源。下载先落临时文件、原子 rename，中断不会留下半截文件；空响应（配额耗尽时站点的典型表现）视为失败而非成功。
 
+**多账号自动轮换**：免费账号每天约 10 次下载。用 `zlib account add` 存多个账号后，下载按以下规则选账号——先从 active 账号开始；profile 显示配额耗尽或下载接口返回限额错误时，自动切换下一个账号重试；所有账号都耗尽才报错（列出各账号用量）。其他失败（书籍下架、反爬墙、网络）与账号无关，不会空转轮换。
+
 交互式终端上显示**实时进度条**（帧率节流到约 10fps）：
 
 ```
@@ -151,11 +174,31 @@ Downloading  [======================]   83%  7.2 MB / 8.7 MB  1.5 MB/s
 
 服务器未返回 Content-Length 时降级为只显示已下载字节数和速率。进度条只在 stderr 为终端时启用：`--json` 模式或输出重定向到管道/文件时自动关闭，脚本和日志不受 `\r` 刷新干扰。
 
+### `account` — 多账号管理与配额轮换
+
+免费账号每天约 10 次下载。存多个账号后，`download` 碰到限额会**自动切换到还有余额的账号**重试：
+
+```bash
+zlib account add --email a@example.com --password '...'   # 新增（或更新密码）
+zlib account list                                         # 账号列表，* 标记 active
+zlib account use b@example.com                            # 切换 active 账号
+zlib account remove b@example.com                         # 删除账号
+zlib quota --all                                          # 所有账号的今日配额一览
+```
+
+轮换规则：
+
+- 从 active 账号开始，先查 profile，余额为 0 直接跳过（不浪费失败尝试）
+- 下载接口返回限额错误（`daily limit` / `quota` 等消息）时，自动换下一个账号重试，并在 stderr 提示
+- 所有账号都耗尽才报错，列出各账号当日用量
+- 其他失败（书籍下架、反爬墙、网络）与账号无关，不会空转轮换
+- token 按账号独立缓存，多账号不会放大登录限流压力
+
 ### 辅助命令
 
 ```bash
 zlib info 12345/abc123   # 完整元数据（原名、作者、出版社、ISBN、页数、简介）
-zlib quota               # 今天还剩多少次下载
+zlib quota               # 当前账号今天还剩多少次下载
 zlib config show|set|reset
 zlib doctor              # 体检
 ```
@@ -232,8 +275,9 @@ main.go
 cmd/                    子命令分发（手写 switch，不引 CLI 框架）
 ├── root.go             全局旗标、参数重排、退出码约定
 ├── search.go           search
-├── download.go         download + 标识符解析
+├── download.go         download + 标识符解析 + 多账号配额轮换
 ├── info.go             info
+├── account.go          account：多账号增删改查与切换
 ├── config.go           config / login / quota
 ├── doctor.go           分阶段连通性诊断
 └── clients.go          客户端构造 + token 缓存策略
@@ -281,7 +325,9 @@ git tag v0.2.0 && git push origin v0.2.0
 - DiamWall 五种信号（307/403/513/517 + 200 带挑战页）都断到 `ErrDomainWalled`
 - 空响应下载被拒（配额耗尽的真实表现），临时文件不残留
 - 文件名路径穿越防护（`../../etc/passwd`、`..\..\Windows\system32`、`C:\Windows\...`）
-- 配置优先级、0600 权限、脱敏输出
+- 配置优先级、旧单账号配置自动迁移为多账号、0600 权限、脱敏输出（含账号列表）
+- 多账号轮换：profile 余额为 0 跳过、配额错误切换下一个账号、全部耗尽才报错
+- EAPI 配额错误分类（`daily limit` / `quota` 等消息归为 `QuotaError`）
 - 参数重排：旗标写在位置参数之后仍生效、`--flag=value` 不被拆开、`--` 分隔符正确传递、布尔旗标不吃掉下一个参数
 - 表格 CJK 对齐、进度条帧率节流与未知总大小降级、用法错误的退出码区分
 
@@ -289,9 +335,9 @@ git tag v0.2.0 && git push origin v0.2.0
 
 - Anna's Archive 的 DDoS-Guard 挑战无法用纯 HTTP 客户端通过，必须借助代理或换网络
 - 暂不支持 LibGen（`internal/fetch` 与 `model.Book` 已为其预留形态，可作为后续数据源接入）
-- Z-Library 免费账号每天约 10 次下载，`zlib quota` 可查
+- Z-Library 免费账号每天约 10 次下载，`zlib quota` 可查；存多个账号后 `download` 自动轮换
 - 搜索为关键词入口；按作者、模糊匹配等高级检索暂不在范围内
-- 登录限流 10 次/小时/IP：`config reset` 后需要重新 `login`，短时间反复重置会触发限流
+- 登录限流 10 次/小时/IP：`config reset` 后需要重新 `login`，短时间反复重置会触发限流；多账号登录也要错峰进行
 
 ## License
 

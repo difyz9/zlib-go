@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/difyz9/zlib-go/internal/model"
@@ -32,6 +34,7 @@ func cmdSearch(ctx *Context, args []string) error {
 	yearTo := fs.Int("year-to", 0, "publication year upper bound")
 	exact := fs.Bool("exact", false, "require an exact title match")
 	order := fs.String("order", "", "result ordering, e.g. popularity or date")
+	pager := fs.Bool("no-pager", false, "disable the interactive result pager (n/p/number/q)")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -110,7 +113,99 @@ func cmdSearch(ctx *Context, args []string) error {
 	if len(errs) > 0 {
 		fmt.Fprintf(ctx.Out, "%s\n", ctx.Colors.Yellow("Note: "+strings.Join(errs, "; ")))
 	}
+
+	// Interactive paging: on a terminal, the user can page through further
+	// results without retyping the search. Non-interactive runs (pipes, JSON
+	// output, --no-pager) behave exactly as before.
+	if !*pager && canPage(ctx) {
+		return runPager(ctx, picked, opts, *page)
+	}
 	return nil
+}
+
+// canPage reports whether interactive result paging makes sense: stdout is a
+// terminal (so the table was human-facing) and stdin is readable.
+func canPage(ctx *Context) bool {
+	if ctx.JSON || ctx.In == nil {
+		return false
+	}
+	return isTerminal(ctx.Out)
+}
+
+// runPager drives the n/p/q/number loop over result pages.
+//
+// Each page triggers a fresh backend request, which is how the underlying
+// APIs paginate; nothing is buffered client-side.
+func runPager(ctx *Context, source string, opts searchOptions, page int) error {
+	reader := bufio.NewReader(ctx.In)
+	for {
+		fmt.Fprintf(ctx.Out, "\n%s ", ctx.Colors.Dim(
+			fmt.Sprintf("[page %d] (n)ext  (p)rev  (1-999) jump  (q)uit:", page)))
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			// EOF (Ctrl-D) or a closed stdin ends the pager cleanly.
+			fmt.Fprintln(ctx.Out)
+			return nil
+		}
+		cmd := strings.ToLower(strings.TrimSpace(line))
+		var next int
+		switch {
+		case cmd == "" || cmd == "n" || cmd == "next":
+			next = page + 1
+		case cmd == "p" || cmd == "prev":
+			next = page - 1
+			if next < 1 {
+				next = 1
+			}
+		case cmd == "q" || cmd == "quit" || cmd == "exit":
+			return nil
+		default:
+			n, cerr := strconv.Atoi(cmd)
+			if cerr != nil || n < 1 {
+				fmt.Fprintf(ctx.Out, "%s\n", ctx.Colors.Dim("(unknown command; n/p/number/q)"))
+				continue
+			}
+			next = n
+		}
+
+		if next == page {
+			fmt.Fprintf(ctx.Out, "%s\n", ctx.Colors.Dim("(already on page 1)"))
+			continue
+		}
+
+		popts := opts
+		popts.page = next
+		books, usedSource, _, serr := runSearch(ctx, source, popts)
+		if serr != nil {
+			fmt.Fprintf(ctx.Out, "%s %v\n", ctx.Colors.Yellow("Search failed:"), serr)
+			continue
+		}
+		if len(books) == 0 {
+			fmt.Fprintf(ctx.Out, "%s\n", ctx.Colors.Dim("(no results on this page)"))
+			continue
+		}
+		// A page shorter than the requested limit means the end of the result
+		// set on most backends.
+		if len(books) < opts.limit {
+			fmt.Fprintf(ctx.Out, "%s\n", ctx.Colors.Dim("(end of results)"))
+			continue
+		}
+		page = next
+
+		fmt.Fprintf(ctx.Out, "\n%s %s\n\n",
+			ctx.Colors.Dim(fmt.Sprintf("%d result(s) from", len(books))),
+			ctx.Colors.Source(usedSource))
+		table := ui.BookTable(books, ctx.Colors, ui.BookColumns{
+			ShowIndex:      true,
+			ShowSource:     ui.MixedSources(books),
+			ShowIdentifier: books[0].Identifier() != "",
+		})
+		table.Render(ctx.Out)
+		if ident := books[0].Identifier(); ident != "" {
+			fmt.Fprintf(ctx.Out, "\n%s zlib download %s -o ~/Downloads\n",
+				ctx.Colors.Dim("Download with (use the Download ID column):"), ident)
+		}
+	}
 }
 
 // searchOptions holds the parsed search filters.
@@ -191,7 +286,7 @@ func searchAnnas(ctx *Context, gctx context.Context, opts searchOptions) ([]mode
 	if err != nil {
 		return nil, err
 	}
-	books, err := client.Search(gctx, opts.query, opts.limit)
+	books, err := client.Search(gctx, opts.query, opts.limit, opts.page)
 	if err != nil {
 		return nil, err
 	}

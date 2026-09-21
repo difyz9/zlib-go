@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -121,11 +122,20 @@ func (c *Client) HTTPClient() *http.Client { return c.http }
 // Each record renders two /md5/ anchors: a cover image with empty text, then
 // the title. Only text-bearing anchors are kept, otherwise every result comes
 // back titled "Unknown" from the cover link.
-func (c *Client) Search(ctx context.Context, query string, limit int) ([]model.Book, error) {
+//
+// page is 1-based; Anna's Archive paginates with ?page=N.
+func (c *Client) Search(ctx context.Context, query string, limit, page int) ([]model.Book, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("search query must not be empty")
 	}
-	body, err := c.fetch(ctx, c.BaseURL+"/search?q="+url.QueryEscape(query))
+	if page < 1 {
+		page = 1
+	}
+	u := c.BaseURL + "/search?q=" + url.QueryEscape(query)
+	if page > 1 {
+		u += "&page=" + strconv.Itoa(page)
+	}
+	body, err := c.fetch(ctx, u)
 	if err != nil {
 		return nil, err
 	}
